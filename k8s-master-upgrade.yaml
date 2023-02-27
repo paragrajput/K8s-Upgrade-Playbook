@@ -1,0 +1,59 @@
+---
+- hosts: master
+  become: yes
+  vars:
+    kube_version: 1.25.0
+  tasks:
+    - name: Gather the package facts
+      ansible.builtin.package_facts:
+        manager: auto
+    - block:
+      - name: "Check whether a package called cri-tools is installed version"
+        debug:
+          msg: "ERROR: cri-tools version is higher. Upgrade might break. Please downgrade to cri-tools version 1.23.0"
+
+      - meta: end_play
+      when: "{{ ansible_facts.packages['cri-tools'][0].version | split('.') | map('int') | join('.') is version('1.24.0', '<=') }}"
+    
+    - name: Upgrade plan control plane components
+      shell: kubeadm upgrade plan {{ kube_version }}
+
+    - name: Unhold kubeadm kubelet kubectl
+      shell: apt-mark unhold kubeadm kubelet kubectl
+  
+    - name: Upgrade kubeadm kubelet kubectl
+      ansible.builtin.apt:
+        name: 
+          - kubeadm={{ kube_version }}-00 
+          - kubelet={{ kube_version }}-00
+          - kubectl={{ kube_version }}-00
+        update_cache: yes
+        force_apt_get: yes
+      become: yes
+
+    - name: Hold kubeadm kubelet kubectl
+      shell: apt-mark hold kubeadm kubelet kubectl
+  
+    - block:
+      - name: "Check Kube version"
+        debug:
+          msg: "ERROR: kube package installation failed. Stopping upgrade process"
+
+      - meta: end_play
+      when: "{{ ansible_facts.packages['kubeadm'] | length < 1 }}"
+    
+    - name: Check Kube version and upgrade the plan
+      shell: kubeadm upgrade apply v{{ kube_version }} -y
+      when: "{{ ansible_facts.packages['kubeadm'] | length > 0 }}"
+
+    - name: Restarting kubelet service
+      shell: systemctl daemon-reload && systemctl restart kubelet
+
+    - name: Waiting for kubernates cluster to be healthy before proceeding
+      shell: sleep 20
+
+    - name: Waiting for k8s cluster to be healthy
+      shell: while [ `kubectl get nodes |wc -l` -lt 2 ]; do  echo "... waiting for k8s cluster to be healthy"; sleep 20; done
+
+             
+    

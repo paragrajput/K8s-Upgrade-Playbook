@@ -1,0 +1,29 @@
+---
+- hosts: nodes
+  become: yes
+  vars:
+    kube_version: 1.25.0
+  tasks:
+    - name: Gather the package facts
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check Kubelet config file
+      stat:
+        path: "/etc/kubernetes/kubelet.conf"
+      register: kubelet_config
+
+    - name: Copy Kubelet config
+      become: true 
+      copy:
+        src: /etc/kubernetes/kubelet.conf
+        dest: /etc/kubernetes
+        owner: root
+        group: root
+        mode: 0600
+      when: not kubelet_config.stat.exists
+    
+    
+
+             
+
